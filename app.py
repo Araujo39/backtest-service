@@ -21,9 +21,17 @@ app.add_middleware(
 
 # Diretórios
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "DATA"
+DATA_DIR = BASE_DIR / "DATA_spot"  # Usar DATA_spot onde estão os dados reais
 REPORTS_DIR = BASE_DIR / "reports"
 STRATEGIES_DIR = BASE_DIR / "strategies"
+
+# Criar diretórios se não existirem
+REPORTS_DIR.mkdir(exist_ok=True)
+
+# Se strategies dir não existe, criar e adicionar __init__.py
+if not STRATEGIES_DIR.exists():
+    STRATEGIES_DIR.mkdir(exist_ok=True)
+    (STRATEGIES_DIR / "__init__.py").touch()
 
 # Models
 class BacktestRequest(BaseModel):
@@ -94,20 +102,32 @@ def list_strategies():
 def list_symbols():
     """Lista todos os símbolos com dados"""
     try:
+        if not DATA_DIR.exists():
+            return {
+                "success": False,
+                "error": f"Data directory not found: {DATA_DIR}",
+                "symbols": [],
+                "count": 0
+            }
+        
         symbols = []
         for csv_file in DATA_DIR.glob("*.csv"):
-            symbol = csv_file.stem
-            size = csv_file.stat().st_size
-            
-            # Contar linhas (candles)
-            with open(csv_file) as f:
-                candles = sum(1 for _ in f) - 1  # -1 para header
-            
-            symbols.append({
-                "symbol": symbol,
-                "candles": candles,
-                "size": size
-            })
+            try:
+                symbol = csv_file.stem
+                size = csv_file.stat().st_size
+                
+                # Contar linhas (candles)
+                with open(csv_file) as f:
+                    candles = sum(1 for _ in f) - 1  # -1 para header
+                
+                symbols.append({
+                    "symbol": symbol,
+                    "candles": candles,
+                    "size": size
+                })
+            except Exception as e:
+                print(f"Error reading {csv_file}: {e}")
+                continue
         
         return {
             "success": True,
