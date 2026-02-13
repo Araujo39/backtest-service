@@ -44,7 +44,35 @@ def root():
 
 @app.get("/health")
 def health_check():
-    return {"status": "healthy"}
+    """Health check with diagnostics"""
+    import sys
+    
+    diagnostics = {
+        "status": "healthy",
+        "python_version": sys.version,
+        "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
+        "data_dir_exists": DATA_DIR.exists(),
+        "reports_dir_exists": REPORTS_DIR.exists(),
+        "strategies_dir_exists": STRATEGIES_DIR.exists()
+    }
+    
+    # Check if ai_optimizer is importable
+    try:
+        import ai_optimizer
+        diagnostics["ai_optimizer_available"] = True
+    except ImportError as e:
+        diagnostics["ai_optimizer_available"] = False
+        diagnostics["ai_optimizer_error"] = str(e)
+    
+    # Check if strategy_validator is importable
+    try:
+        import strategy_validator
+        diagnostics["validator_available"] = True
+    except ImportError as e:
+        diagnostics["validator_available"] = False
+        diagnostics["validator_error"] = str(e)
+    
+    return diagnostics
 
 @app.get("/strategies")
 def list_strategies():
@@ -294,18 +322,33 @@ def optimize_strategy_endpoint(request: dict):
     }
     """
     try:
-        from ai_optimizer import optimize_strategy
+        # Import lazy para evitar travamento no startup
+        try:
+            from ai_optimizer import optimize_strategy
+        except ImportError as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"AI Optimizer module not available: {str(e)}"
+            )
         
         strategy_name = request.get("strategy_name")
         current_code = request.get("current_code")
         performance_metrics = request.get("performance_metrics")
         problems = request.get("problems", [])
-        openai_api_key = request.get("openai_api_key")
         
-        if not all([strategy_name, current_code, performance_metrics, openai_api_key]):
+        # Pegar API key da variável de ambiente OU do request
+        openai_api_key = os.getenv("OPENAI_API_KEY") or request.get("openai_api_key")
+        
+        if not all([strategy_name, current_code, performance_metrics]):
             raise HTTPException(
                 status_code=400,
-                detail="Missing required fields: strategy_name, current_code, performance_metrics, openai_api_key"
+                detail="Missing required fields: strategy_name, current_code, performance_metrics"
+            )
+        
+        if not openai_api_key:
+            raise HTTPException(
+                status_code=400,
+                detail="OpenAI API key not found. Set OPENAI_API_KEY environment variable or pass in request."
             )
         
         result = optimize_strategy(
@@ -318,8 +361,10 @@ def optimize_strategy_endpoint(request: dict):
         
         return result
         
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Optimization error: {str(e)}")
 
 
 @app.post("/validate")
@@ -351,7 +396,14 @@ def validate_strategy_endpoint(request: dict):
     }
     """
     try:
-        from strategy_validator import validate_new_version
+        # Import lazy para evitar travamento no startup
+        try:
+            from strategy_validator import validate_new_version
+        except ImportError as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Validator module not available: {str(e)}"
+            )
         
         strategy_name = request.get("strategy_name")
         old_code = request.get("old_code")
@@ -379,8 +431,10 @@ def validate_strategy_endpoint(request: dict):
         
         return result
         
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Validation error: {str(e)}")
 
 
 @app.post("/deploy-strategy")
