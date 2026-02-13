@@ -251,6 +251,182 @@ def get_report(filename: str):
 
 
 # ============================================================================
+# AI OPTIMIZATION ENDPOINTS
+# ============================================================================
+
+@app.post("/optimize")
+def optimize_strategy_endpoint(request: dict):
+    """
+    AI Optimization endpoint using OpenAI GPT-4.
+    
+    Payload:
+    {
+        "strategy_name": "sniper",
+        "current_code": "def run_strategy...",
+        "performance_metrics": {
+            "avg_win_rate": 0.31,
+            "avg_profit": -4.24,
+            "avg_drawdown": 0.0637,
+            "avg_trades": 54,
+            "avg_score": 65.3
+        },
+        "problems": [
+            {
+                "type": "low_win_rate",
+                "description": "...",
+                "current_value": 0.31,
+                "target_value": 0.80,
+                "suggestions": ["...", "..."]
+            }
+        ],
+        "openai_api_key": "sk-..."
+    }
+    
+    Returns:
+    {
+        "success": true,
+        "optimized_code": "def run_strategy...",
+        "parameters": {...},
+        "ai_response": "...",
+        "tokens_used": 3500,
+        "cost_usd": 0.0945
+    }
+    """
+    try:
+        from ai_optimizer import optimize_strategy
+        
+        strategy_name = request.get("strategy_name")
+        current_code = request.get("current_code")
+        performance_metrics = request.get("performance_metrics")
+        problems = request.get("problems", [])
+        openai_api_key = request.get("openai_api_key")
+        
+        if not all([strategy_name, current_code, performance_metrics, openai_api_key]):
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required fields: strategy_name, current_code, performance_metrics, openai_api_key"
+            )
+        
+        result = optimize_strategy(
+            strategy_name=strategy_name,
+            current_code=current_code,
+            performance_metrics=performance_metrics,
+            problems=problems,
+            openai_api_key=openai_api_key
+        )
+        
+        return result
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/validate")
+def validate_strategy_endpoint(request: dict):
+    """
+    Validate a new strategy version against the old one.
+    
+    Payload:
+    {
+        "strategy_name": "sniper",
+        "old_code": "def run_strategy...",
+        "new_code": "def run_strategy...",
+        "symbols": ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
+        "timeframe": "15m",
+        "initial_capital": 100,
+        "data_dir": "DATA_spot"
+    }
+    
+    Returns:
+    {
+        "approved": true/false,
+        "old_metrics": {...},
+        "new_metrics": {...},
+        "comparison": {...},
+        "approval_criteria": {...},
+        "improvement_pct": 15.5,
+        "tests_run": 10,
+        "symbols_tested": ["..."]
+    }
+    """
+    try:
+        from strategy_validator import validate_new_version
+        
+        strategy_name = request.get("strategy_name")
+        old_code = request.get("old_code")
+        new_code = request.get("new_code")
+        symbols = request.get("symbols", [])
+        timeframe = request.get("timeframe", "15m")
+        initial_capital = request.get("initial_capital", 100.0)
+        data_dir = request.get("data_dir", "DATA_spot")
+        
+        if not all([strategy_name, old_code, new_code, symbols]):
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required fields: strategy_name, old_code, new_code, symbols"
+            )
+        
+        result = validate_new_version(
+            strategy_name=strategy_name,
+            old_code=old_code,
+            new_code=new_code,
+            symbols=symbols,
+            timeframe=timeframe,
+            initial_capital=initial_capital,
+            data_dir=data_dir
+        )
+        
+        return result
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/deploy-strategy")
+def deploy_strategy_endpoint(request: dict):
+    """
+    Deploy a new strategy version by updating the Python file.
+    
+    Payload:
+    {
+        "strategy_name": "sniper",
+        "code": "def run_strategy..."
+    }
+    
+    Returns:
+    {
+        "success": true,
+        "strategy": "sniper",
+        "file_path": "strategies/sniper.py"
+    }
+    """
+    try:
+        strategy_name = request.get("strategy_name")
+        code = request.get("code")
+        
+        if not all([strategy_name, code]):
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required fields: strategy_name, code"
+            )
+        
+        strategy_file = STRATEGIES_DIR / f"{strategy_name}.py"
+        
+        # Write new code
+        with open(strategy_file, 'w') as f:
+            f.write(code)
+        
+        return {
+            "success": True,
+            "strategy": strategy_name,
+            "file_path": str(strategy_file)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
 # BINANCE DATA ENDPOINTS
 # ============================================================================
 
