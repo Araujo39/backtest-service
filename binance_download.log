@@ -1,0 +1,152 @@
+
+================================================================================
+🚀 BINANCE DATA DOWNLOADER
+================================================================================
+Market: SPOT
+Interval: 15m
+Symbols: 10
+Max candles per symbol: 2000
+================================================================================
+
+
+[1/10] Processing BTCUSDT...
+
+🔍 Downloading BTCUSDT (15m) from 2025-08-17 to 2026-02-13
+--------------------------------------------------------------------------------
+📥 Downloading: BTCUSDT-15m-2025-08.zip... ❌ Error: Out of bounds nanosecond timestamp: 57552-04-02 00:00:00
+📥 Downloading: BTCUSDT-15m-2025-09.zip... ❌ Error: Out of bounds nanosecond timestamp: 57637-02-15 00:00:00
+📥 Downloading: BTCUSDT-15m-2025-10.zip... ❌ Error: Out of bounds nanosecond timestamp: 57719-04-07 00:00:00
+📥 Downloading: BTCUSDT-15m-2025-11.zip... ❌ Error: Out of bounds nanosecond timestamp: 57804-02-21 00:00:00
+📥 Downloading: BTCUSDT-15m-2025-12.zip... ❌ Error: Out of bounds nanosecond timestamp: 57886-04-11 00:00:00
+📥 Downloading: BTCUSDT-15m-2026-01.zip... ❌ Error: Out of bounds nanosecond timestamp: 57971-02-25 00:00:00
+
+❌ No data found for BTCUSDT
+
+[2/10] Processing ETHUSDT...
+
+🔍 Downloading ETHUSDT (15m) from 2025-08-17 to 2026-02-13
+--------------------------------------------------------------------------------
+📥 Downloading: ETHUSDT-15m-2025-08.zip... ❌ Error: Out of bounds nanosecond timestamp: 57552-04-02 00:00:00
+📥 Downloading: ETHUSDT-15m-2025-09.zip... ❌ Error: Out of bounds nanosecond timestamp: 57637-02-15 00:00:00
+📥 Downloading: ETHUSDT-15m-2025-10.zip... ❌ Error: Out of bounds nanosecond timestamp: 57719-04-07 00:00:00
+📥 Downloading: ETHUSDT-15m-2025-11.zip... ❌ Error: Out of bounds nanosecond timestamp: 57804-02-21 00:00:00
+📥 Downloading: ETHUSDT-15m-2025-12.zip... ❌ Error: Out of bounds nanosecond timestamp: 57886-04-11 00:00:00
+📥 Downloading: ETHUSDT-15m-2026-01.zip... ❌ Error: Out of bounds nanosecond timestamp: 57971-02-25 00:00:00
+
+❌ No data found for ETHUSDT
+
+[3/10] Processing BNBUSDT...
+
+🔍 Downloading BNBUSDT (15m) from 2025-08-17 to 2026-02-13
+--------------------------------------------------------------------------------
+📥 Downloading: BNBUSDT-15m-2025-08.zip... ❌ Error: Out of bounds nanosecond timestamp: 57552-04-02 00:00:00
+📥 Downloading: BNBUSDT-15m-2025-09.zip... ❌ Error: Out of bounds nanosecond timestamp: 57637-02-15 00:00:00
+📥 Downloading: BNBUSDT-15m-2025-10.zip... ❌ Error: Out of bounds nanosecond timestamp: 57719-04-07 00:00:00
+📥 Downloading: BNBUSDT-15m-2025-11.zip... ❌ Error: Out of bounds nanosecond timestamp: 57804-02-21 00:00:00
+📥 Downloading: BNBUSDT-15m-2025-12.zip... ❌ Error: Out of bounds nanosecond timestamp: 57886-04-11 00:00:00
+📥 Downloading: BNBUSDT-15m-2026-01.zip... ❌ Error: Out of bounds nanosecond timestamp: 57971-02-25 00:00:00
+
+❌ No data found for BNBUSDT
+
+[4/10] Processing SOLUSDT...
+
+🔍 Downloading SOLUSDT (15m) from 2025-08-17 to 2026-02-13
+--------------------------------------------------------------------------------
+📥 Downloading: SOLUSDT-15m-2025-08.zip... ❌ Error: Out of bounds nanosecond timestamp: 57552-04-02 00:00:00
+📥 Downloading: SOLUSDT-15m-2025-09.zip... ❌ Error: Out of bounds nanosecond timestamp: 57637-02-15 00:00:00
+📥 Downloading: SOLUSDT-15m-2025-10.zip... ❌ Error: Out of bounds nanosecond timestamp: 57719-04-07 00:00:00
+📥 Downloading: SOLUSDT-15m-2025-11.zip... ❌ Error: Out of bounds nanosecond timestamp: 57804-02-21 00:00:00
+📥 Downloading: SOLUSDT-15m-2025-12.zip... ❌ Error: Out of bounds nanosecond timestamp: 57886-04-11 00:00:00
+📥 Downloading: SOLUSDT-15m-2026-01.zip... ❌ Error: Out of bounds nanosecond timestamp: 57971-02-25 00:00:00
+
+❌ No data found for SOLUSDT
+
+[5/10] Processing ADAUSDT...
+
+🔍 Downloading ADAUSDT (15m) from 2025-08-17 to 2026-02-13
+--------------------------------------------------------------------------------
+📥 Downloading: ADAUSDT-15m-2025-08.zip... ❌ Error: Out of bounds nanosecond timestamp: 57552-04-02 00:00:00
+📥 Downloading: ADAUSDT-15m-2025-09.zip... ❌ Error: Out of bounds nanosecond timestamp: 57637-02-15 00:00:00
+📥 Downloading: ADAUSDT-15m-2025-10.zip... ❌ Error: Out of bounds nanosecond timestamp: 57719-04-07 00:00:00
+📥 Downloading: ADAUSDT-15m-2025-11.zip... ❌ Error: Out of bounds nanosecond timestamp: 57804-02-21 00:00:00
+📥 Downloading: ADAUSDT-15m-2025-12.zip... ❌ Error: Out of bounds nanosecond timestamp: 57886-04-11 00:00:00
+📥 Downloading: ADAUSDT-15m-2026-01.zip... ❌ Error: Out of bounds nanosecond timestamp: 57971-02-25 00:00:00
+
+❌ No data found for ADAUSDT
+
+[6/10] Processing ATOMUSDT...
+
+🔍 Downloading ATOMUSDT (15m) from 2025-08-17 to 2026-02-13
+--------------------------------------------------------------------------------
+📥 Downloading: ATOMUSDT-15m-2025-08.zip... ❌ Error: Out of bounds nanosecond timestamp: 57552-04-02 00:00:00
+📥 Downloading: ATOMUSDT-15m-2025-09.zip... ❌ Error: Out of bounds nanosecond timestamp: 57637-02-15 00:00:00
+📥 Downloading: ATOMUSDT-15m-2025-10.zip... ❌ Error: Out of bounds nanosecond timestamp: 57719-04-07 00:00:00
+📥 Downloading: ATOMUSDT-15m-2025-11.zip... ❌ Error: Out of bounds nanosecond timestamp: 57804-02-21 00:00:00
+📥 Downloading: ATOMUSDT-15m-2025-12.zip... ❌ Error: Out of bounds nanosecond timestamp: 57886-04-11 00:00:00
+📥 Downloading: ATOMUSDT-15m-2026-01.zip... ❌ Error: Out of bounds nanosecond timestamp: 57971-02-25 00:00:00
+
+❌ No data found for ATOMUSDT
+
+[7/10] Processing AVAXUSDT...
+
+🔍 Downloading AVAXUSDT (15m) from 2025-08-17 to 2026-02-13
+--------------------------------------------------------------------------------
+📥 Downloading: AVAXUSDT-15m-2025-08.zip... ❌ Error: Out of bounds nanosecond timestamp: 57552-04-02 00:00:00
+📥 Downloading: AVAXUSDT-15m-2025-09.zip... ❌ Error: Out of bounds nanosecond timestamp: 57637-02-15 00:00:00
+📥 Downloading: AVAXUSDT-15m-2025-10.zip... ❌ Error: Out of bounds nanosecond timestamp: 57719-04-07 00:00:00
+📥 Downloading: AVAXUSDT-15m-2025-11.zip... ❌ Error: Out of bounds nanosecond timestamp: 57804-02-21 00:00:00
+📥 Downloading: AVAXUSDT-15m-2025-12.zip... ❌ Error: Out of bounds nanosecond timestamp: 57886-04-11 00:00:00
+📥 Downloading: AVAXUSDT-15m-2026-01.zip... ❌ Error: Out of bounds nanosecond timestamp: 57971-02-25 00:00:00
+
+❌ No data found for AVAXUSDT
+
+[8/10] Processing DOGEUSDT...
+
+🔍 Downloading DOGEUSDT (15m) from 2025-08-17 to 2026-02-13
+--------------------------------------------------------------------------------
+📥 Downloading: DOGEUSDT-15m-2025-08.zip... ❌ Error: Out of bounds nanosecond timestamp: 57552-04-02 00:00:00
+📥 Downloading: DOGEUSDT-15m-2025-09.zip... ❌ Error: Out of bounds nanosecond timestamp: 57637-02-15 00:00:00
+📥 Downloading: DOGEUSDT-15m-2025-10.zip... ❌ Error: Out of bounds nanosecond timestamp: 57719-04-07 00:00:00
+📥 Downloading: DOGEUSDT-15m-2025-11.zip... ❌ Error: Out of bounds nanosecond timestamp: 57804-02-21 00:00:00
+📥 Downloading: DOGEUSDT-15m-2025-12.zip... ❌ Error: Out of bounds nanosecond timestamp: 57886-04-11 00:00:00
+📥 Downloading: DOGEUSDT-15m-2026-01.zip... ❌ Error: Out of bounds nanosecond timestamp: 57971-02-25 00:00:00
+
+❌ No data found for DOGEUSDT
+
+[9/10] Processing MATICUSDT...
+
+🔍 Downloading MATICUSDT (15m) from 2025-08-17 to 2026-02-13
+--------------------------------------------------------------------------------
+📥 Downloading: MATICUSDT-15m-2025-08.zip... ❌ Not found
+📥 Downloading: MATICUSDT-15m-2025-09.zip... ❌ Not found
+📥 Downloading: MATICUSDT-15m-2025-10.zip... ❌ Not found
+📥 Downloading: MATICUSDT-15m-2025-11.zip... ❌ Not found
+📥 Downloading: MATICUSDT-15m-2025-12.zip... ❌ Not found
+📥 Downloading: MATICUSDT-15m-2026-01.zip... ❌ Not found
+
+❌ No data found for MATICUSDT
+
+[10/10] Processing XRPUSDT...
+
+🔍 Downloading XRPUSDT (15m) from 2025-08-17 to 2026-02-13
+--------------------------------------------------------------------------------
+📥 Downloading: XRPUSDT-15m-2025-08.zip... ❌ Error: Out of bounds nanosecond timestamp: 57552-04-02 00:00:00
+📥 Downloading: XRPUSDT-15m-2025-09.zip... ❌ Error: Out of bounds nanosecond timestamp: 57637-02-15 00:00:00
+📥 Downloading: XRPUSDT-15m-2025-10.zip... ❌ Error: Out of bounds nanosecond timestamp: 57719-04-07 00:00:00
+📥 Downloading: XRPUSDT-15m-2025-11.zip... ❌ Error: Out of bounds nanosecond timestamp: 57804-02-21 00:00:00
+📥 Downloading: XRPUSDT-15m-2025-12.zip... ❌ Error: Out of bounds nanosecond timestamp: 57886-04-11 00:00:00
+📥 Downloading: XRPUSDT-15m-2026-01.zip... ❌ Error: Out of bounds nanosecond timestamp: 57971-02-25 00:00:00
+
+❌ No data found for XRPUSDT
+
+================================================================================
+📊 SUMMARY
+================================================================================
+✅ Success: 0 symbols
+❌ Failed: 10 symbols
+
+Failed symbols: BTCUSDT, ETHUSDT, BNBUSDT, SOLUSDT, ADAUSDT, ATOMUSDT, AVAXUSDT, DOGEUSDT, MATICUSDT, XRPUSDT
+================================================================================
+
+✅ Download completed!
+📁 Data saved to: DATA_spot/

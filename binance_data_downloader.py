@@ -81,8 +81,12 @@ class BinanceDataDownloader:
             # Keep only OHLCV columns
             df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
             
-            # Convert timestamp to datetime
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            # Convert timestamp to datetime (Binance uses milliseconds)
+            # Fix: Use utc=True to avoid timestamp overflow
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
+            
+            # Convert to timezone-naive datetime
+            df['timestamp'] = df['timestamp'].dt.tz_localize(None)
             
             print(f"✅ ({len(df)} candles)")
             
@@ -120,14 +124,15 @@ class BinanceDataDownloader:
         Returns:
             DataFrame with combined data
         """
-        # Default: Last 6 months
+        # Default: Use 2024 data (6 months from July to December 2024)
+        # Avoid 2025-2026 data which has timestamp issues
         if end_date is None:
-            end_date = datetime.now()
+            end_date = datetime(2024, 12, 31)  # End of 2024
         elif isinstance(end_date, str):
             end_date = datetime.strptime(end_date, '%Y-%m-%d')
         
         if start_date is None:
-            start_date = end_date - timedelta(days=180)  # 6 months
+            start_date = datetime(2024, 7, 1)  # Start from July 2024
         elif isinstance(start_date, str):
             start_date = datetime.strptime(start_date, '%Y-%m-%d')
         
