@@ -240,6 +240,139 @@ def run_all_backtests():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ==================== POST /validate-strategy ====================
+@app.post("/validate-strategy")
+async def validate_strategy(request: Request):
+    """
+    Valida sintaxe e estrutura de uma estratégia sem fazer deploy
+    
+    Body JSON:
+    {
+        "script_content": "def run_strategy(df, capital, **params): ...",
+        "strict": true  // Se true, aplica validações extras
+    }
+    
+    Returns:
+    {
+        "valid": true/false,
+        "errors": [],
+        "warnings": [],
+        "info": {
+            "has_run_strategy": true,
+            "has_docstring": true,
+            "imports": ["pandas", "numpy"],
+            "line_count": 50
+        }
+    }
+    """
+    try:
+        data = await request.json()
+        script_content = data.get('script_content', '')
+        strict = data.get('strict', False)
+        
+        errors = []
+        warnings = []
+        info = {}
+        
+        # 1. Validar campo obrigatório
+        if not script_content:
+            return {
+                'valid': False,
+                'errors': ['Script content is required'],
+                'warnings': [],
+                'info': {}
+            }
+        
+        # 2. Validar sintaxe Python
+        try:
+            compile(script_content, '<strategy>', 'exec')
+        except SyntaxError as e:
+            errors.append(f"Syntax error at line {e.lineno}: {e.msg}")
+            return {
+                'valid': False,
+                'errors': errors,
+                'warnings': warnings,
+                'info': info
+            }
+        
+        # 3. Validar função run_strategy
+        if 'def run_strategy(' not in script_content:
+            errors.append("Missing required function 'def run_strategy(df, capital, **params)'")
+        else:
+            info['has_run_strategy'] = True
+        
+        # 4. Validar assinatura da função (parâmetros esperados)
+        if 'def run_strategy(df, capital' not in script_content:
+            warnings.append("Function signature should include 'df' and 'capital' parameters")
+        
+        # 5. Validar imports perigosos
+        dangerous_imports = [
+            'os.system', 'subprocess', 'eval', 'exec', '__import__',
+            'open(', 'file(', 'input(', 'raw_input('
+        ]
+        
+        for dangerous in dangerous_imports:
+            if dangerous in script_content:
+                errors.append(f"Dangerous operation detected: '{dangerous}' is not allowed")
+        
+        # 6. Whitelist de bibliotecas permitidas
+        allowed_libs = ['pandas', 'numpy', 'ta', 'datetime', 'math', 'random', 're']
+        
+        # Extrair imports
+        import re
+        import_pattern = r'(?:from|import)\s+([a-zA-Z_][a-zA-Z0-9_]*)'
+        found_imports = re.findall(import_pattern, script_content)
+        info['imports'] = list(set(found_imports))
+        
+        if strict:
+            for imp in found_imports:
+                if imp not in allowed_libs:
+                    warnings.append(f"Library '{imp}' is not in whitelist: {', '.join(allowed_libs)}")
+        
+        # 7. Verificar docstring
+        if '"""' in script_content or "'''" in script_content:
+            info['has_docstring'] = True
+        else:
+            warnings.append("Consider adding a docstring to describe your strategy")
+        
+        # 8. Validar retorno da função
+        if 'return' not in script_content:
+            errors.append("Function 'run_strategy' must return a result dictionary")
+        
+        # 9. Validar campos de retorno esperados
+        required_return_fields = ['capital_final', 'profit', 'win_rate', 'total_trades']
+        missing_fields = []
+        
+        for field in required_return_fields:
+            if f"'{field}'" not in script_content and f'"{field}"' not in script_content:
+                missing_fields.append(field)
+        
+        if missing_fields:
+            warnings.append(f"Return dict should include: {', '.join(missing_fields)}")
+        
+        # 10. Info adicional
+        info['line_count'] = len(script_content.split('\n'))
+        info['char_count'] = len(script_content)
+        
+        # Resultado final
+        valid = len(errors) == 0
+        
+        return {
+            'valid': valid,
+            'errors': errors,
+            'warnings': warnings,
+            'info': info
+        }
+        
+    except Exception as e:
+        return {
+            'valid': False,
+            'errors': [f"Validation error: {str(e)}"],
+            'warnings': [],
+            'info': {}
+        }
+
+
 # ==================== POST /deploy-strategy ====================
 @app.post("/deploy-strategy")
 async def deploy_strategy(request: Request):
