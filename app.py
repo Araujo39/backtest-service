@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
@@ -7,6 +7,9 @@ import json
 import os
 from pathlib import Path
 from binance_data_downloader import BinanceDataDownloader
+import shutil
+import sys
+from datetime import datetime
 
 app = FastAPI(title="Backtest Service", version="1.0.0")
 
@@ -237,6 +240,222 @@ def run_all_backtests():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ==================== POST /deploy-strategy ====================
+@app.post("/deploy-strategy")
+async def deploy_strategy(request: Request):
+    """
+    Recebe estratégia do D1 e faz deploy no Railway
+    
+    Body JSON:
+    {
+        "name": "custom_scalping",
+        "script_content": "def run_strategy(df, capital, **params): ...",
+        "description": "Custom scalping strategy",
+        "created_by": "admin@example.com"
+    }
+    """
+    try:
+        data = await request.json()
+        
+        # 1. Validar campos obrigatórios
+        required_fields = ['name', 'script_content']
+        for field in required_fields:
+            if field not in data:
+                raise HTTPException(400, f"Missing required field: {field}")
+        
+        strategy_name = data['name'].lower()
+        script_content = data['script_content']
+        
+        # 2. Validar sintaxe Python
+        try:
+            compile(script_content, f'<strategy:{strategy_name}>', 'exec')
+        except SyntaxError as e:
+            raise HTTPException(400, f"Invalid Python syntax: {str(e)}")
+        
+        # 3. Validar que contém função run_strategy
+        if 'def run_strategy(' not in script_content:
+            raise HTTPException(400, "Strategy must contain 'def run_strategy(df, capital, **params)' function")
+        
+        # 4. Criar diretório strategies/ se não existe
+        strategies_dir = BASE_DIR / 'strategies'
+        strategies_dir.mkdir(exist_ok=True)
+        
+        # 5. Fazer backup da estratégia antiga (se existe)
+        strategy_file = strategies_dir / f'{strategy_name}.py'
+        if strategy_file.exists():
+            backup_dir = BASE_DIR / 'strategies_backup'
+            backup_dir.mkdir(exist_ok=True)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            backup_file = backup_dir / f'{strategy_name}_{timestamp}.py'
+            shutil.copy(strategy_file, backup_file)
+            print(f"[Deploy] Backup created: {backup_file}")
+        
+        # 6. Escrever novo arquivo
+        with open(strategy_file, 'w', encoding='utf-8') as f:
+            f.write(script_content)
+        
+        print(f"[Deploy] Strategy deployed: {strategy_file}")
+        
+        # 7. Hot reload - recarregar módulo
+        try:
+            import importlib
+            strategy_module_name = f'strategies.{strategy_name}'
+            
+            # Se módulo já está carregado, recarregar
+            if strategy_module_name in sys.modules:
+                importlib.reload(sys.modules[strategy_module_name])
+                print(f"[Deploy] Module reloaded: {strategy_module_name}")
+            else:
+                # Importar pela primeira vez
+                importlib.import_module(strategy_module_name)
+                print(f"[Deploy] Module imported: {strategy_module_name}")
+        except Exception as e:
+            print(f"[Deploy] Warning: Could not hot reload module: {e}")
+            # Não é erro fatal, estratégia ainda foi salva
+        
+        # 8. Registrar deploy em log
+        deploy_log = {
+            'strategy': strategy_name,
+            'timestamp': datetime.now().isoformat(),
+            'description': data.get('description', ''),
+            'created_by': data.get('created_by', 'unknown'),
+            'file_size': len(script_content),
+            'status': 'success'
+        }
+        
+        # Salvar log em arquivo JSON
+        log_file = BASE_DIR / 'deploy_log.json'
+        logs = []
+        if log_file.exists():
+            with open(log_file, 'r') as f:
+                try:
+                    logs = json.load(f)
+                except:
+                    logs = []
+        logs.append(deploy_log)
+        
+        # Manter apenas últimos 100 logs
+        logs = logs[-100:]
+        
+        with open(log_file, 'w') as f:
+            json.dump(logs, f, indent=2)
+        
+        return {
+            'success': True,
+            'message': f'Strategy {strategy_name} deployed successfully',
+            'strategy': strategy_name,
+            'file_path': str(strategy_file),
+            'file_size': len(script_content),
+            'hot_reloaded': True,
+            'deploy_log': deploy_log
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Deploy] Error deploying strategy: {e}")
+        raise HTTPException(500, f"Failed to deploy strategy: {str(e)}")
+
+
+# ==================== GET /deployed-strategies ====================
+@app.get("/deployed-strategies")
+def list_deployed_strategies():
+    """
+    Lista estratégias atualmente deployadas no Railway
+    """
+    try:
+        strategies_dir = BASE_DIR / 'strategies'
+        
+        if not strategies_dir.exists():
+            return {
+                'success': True,
+                'strategies': [],
+                'count': 0
+            }
+        
+        deployed = []
+        for strategy_file in strategies_dir.glob('*.py'):
+            if strategy_file.name == '__init__.py':
+                continue
+            
+            strategy_name = strategy_file.stem
+            
+            # Ler primeira linha (docstring) para descrição
+            description = ''
+            try:
+                with open(strategy_file, 'r') as f:
+                    first_lines = f.read(500)
+                    if '"""' in first_lines:
+                        description = first_lines.split('"""')[1].strip()[:200]
+            except:
+                pass
+            
+            # Stats do arquivo
+            stat = strategy_file.stat()
+            
+            deployed.append({
+                'name': strategy_name,
+                'file_name': strategy_file.name,
+                'description': description,
+                'size': stat.st_size,
+                'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                'source': 'd1' if '_custom' in strategy_name else 'builtin'
+            })
+        
+        return {
+            'success': True,
+            'strategies': deployed,
+            'count': len(deployed),
+            'directory': str(strategies_dir)
+        }
+        
+    except Exception as e:
+        print(f"[Deploy] Error listing strategies: {e}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+
+# ==================== GET /deploy-logs ====================
+@app.get("/deploy-logs")
+def get_deploy_logs(limit: int = 20):
+    """
+    Retorna histórico de deploys
+    """
+    try:
+        log_file = BASE_DIR / 'deploy_log.json'
+        
+        if not log_file.exists():
+            return {
+                'success': True,
+                'logs': [],
+                'count': 0
+            }
+        
+        with open(log_file, 'r') as f:
+            logs = json.load(f)
+        
+        # Retornar últimos N logs
+        recent_logs = logs[-limit:] if len(logs) > limit else logs
+        recent_logs.reverse()  # Mais recente primeiro
+        
+        return {
+            'success': True,
+            'logs': recent_logs,
+            'count': len(recent_logs),
+            'total': len(logs)
+        }
+        
+    except Exception as e:
+        print(f"[Deploy] Error reading logs: {e}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+
+# ==================== GET /reports ====================
 @app.get("/reports")
 def list_reports():
     """Lista todos os relatórios salvos"""
