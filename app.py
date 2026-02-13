@@ -248,3 +248,151 @@ def get_report(filename: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# BINANCE DATA ENDPOINTS
+# ============================================================================
+
+@app.post("/binance/download-symbol")
+def download_binance_symbol(request: dict):
+    """
+    Download real OHLCV data from Binance Public Data for a single symbol.
+    
+    Payload:
+    {
+        "symbol": "BTCUSDT",
+        "interval": "15m",
+        "max_candles": 2000,
+        "market_type": "spot"
+    }
+    """
+    symbol = request.get("symbol")
+    interval = request.get("interval", "15m")
+    max_candles = request.get("max_candles", 2000)
+    market_type = request.get("market_type", "spot")
+    
+    if not symbol:
+        raise HTTPException(status_code=400, detail="Symbol is required")
+    
+    try:
+        downloader = BinanceDataDownloader(market_type=market_type)
+        
+        success = downloader.save_symbol_data(
+            symbol=symbol,
+            interval=interval,
+            max_candles=max_candles
+        )
+        
+        if success:
+            # Check file
+            csv_file = downloader.base_path / f"{symbol}.csv"
+            file_size = csv_file.stat().st_size if csv_file.exists() else 0
+            
+            # Count candles
+            with open(csv_file) as f:
+                candles = sum(1 for _ in f) - 1
+            
+            return {
+                "success": True,
+                "symbol": symbol,
+                "interval": interval,
+                "candles": candles,
+                "file_size": file_size,
+                "file_path": str(csv_file)
+            }
+        else:
+            return {
+                "success": False,
+                "error": "Failed to download data"
+            }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/binance/download-multiple")
+def download_binance_multiple(request: dict):
+    """
+    Download real OHLCV data from Binance for multiple symbols.
+    
+    Payload:
+    {
+        "symbols": ["BTCUSDT", "ETHUSDT", ...],
+        "interval": "15m",
+        "max_candles": 2000,
+        "market_type": "spot"
+    }
+    """
+    symbols = request.get("symbols", [])
+    interval = request.get("interval", "15m")
+    max_candles = request.get("max_candles", 2000)
+    market_type = request.get("market_type", "spot")
+    
+    if not symbols:
+        raise HTTPException(status_code=400, detail="Symbols list is required")
+    
+    try:
+        downloader = BinanceDataDownloader(market_type=market_type)
+        
+        results = downloader.download_multiple_symbols(
+            symbols=symbols,
+            interval=interval,
+            max_candles=max_candles
+        )
+        
+        return {
+            "success": True,
+            "total_symbols": len(symbols),
+            "successful": len(results['success']),
+            "failed": len(results['failed']),
+            "success_list": results['success'],
+            "failed_list": results['failed']
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/binance/available-intervals")
+def get_available_intervals():
+    """Lista os intervalos disponíveis na Binance"""
+    return {
+        "intervals": [
+            "1m", "3m", "5m", "15m", "30m",
+            "1h", "2h", "4h", "6h", "8h", "12h",
+            "1d", "3d", "1w", "1mo"
+        ],
+        "recommended": {
+            "scalping": ["1m", "3m", "5m"],
+            "day_trading": ["15m", "30m", "1h"],
+            "swing_trading": ["4h", "1d"],
+            "position_trading": ["1d", "1w"]
+        }
+    }
+
+
+@app.get("/data-source")
+def get_data_source():
+    """Retorna informações sobre a fonte dos dados"""
+    data_spot_exists = (DATA_DIR / "BTCUSDT.csv").exists()
+    data_binance_exists = Path("DATA_spot").exists()
+    
+    binance_candles = 0
+    if data_binance_exists:
+        try:
+            with open("DATA_spot/BTCUSDT.csv") as f:
+                binance_candles = sum(1 for _ in f) - 1
+        except:
+            pass
+    
+    return {
+        "current_data": "synthetic" if data_spot_exists and not data_binance_exists else "binance",
+        "synthetic_data_available": data_spot_exists,
+        "binance_data_available": data_binance_exists,
+        "binance_candles": binance_candles,
+        "data_directory": str(DATA_DIR),
+        "binance_directory": "DATA_spot",
+        "binance_vision_url": "https://data.binance.vision/",
+        "recommendation": "Use /binance/download-multiple to get real Binance data"
+    }
