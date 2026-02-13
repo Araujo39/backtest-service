@@ -6,6 +6,7 @@ import subprocess
 import json
 import os
 from pathlib import Path
+from binance_data_downloader import BinanceDataDownloader
 
 app = FastAPI(title="Backtest Service", version="1.0.0")
 
