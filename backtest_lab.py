@@ -7,17 +7,24 @@ import pandas as pd
 import numpy as np
 import importlib
 
-def calculate_backtest_metrics(df, capital):
+def calculate_backtest_metrics(df_or_dict, capital):
     """
-    Calcula métricas de backtest a partir do DataFrame com sinais.
+    Calcula métricas de backtest a partir do DataFrame com sinais OU de um dict já processado.
     
     Args:
-        df: DataFrame com coluna 'signal' (1=compra, -1=venda, 0=neutro)
+        df_or_dict: DataFrame com coluna 'signal' OU dict com métricas já calculadas
         capital: Capital inicial
     
     Returns:
         dict com métricas do backtest
     """
+    # Se já é um dict (estratégias antigas), retornar diretamente
+    if isinstance(df_or_dict, dict):
+        return df_or_dict
+    
+    # Se é DataFrame, processar
+    df = df_or_dict
+    
     if 'signal' not in df.columns:
         return {
             "error": "DataFrame não contém coluna 'signal'",
