@@ -7,6 +7,90 @@ import pandas as pd
 import numpy as np
 import importlib
 
+def normalize_strategy_result(result, capital):
+    """
+    Normaliza o resultado de estratégias customizadas para formato esperado.
+    Compatível com múltiplos formatos de retorno.
+    
+    Args:
+        result: Retorno da estratégia (dict ou DataFrame)
+        capital: Capital inicial
+        
+    Returns:
+        dict normalizado com campos obrigatórios
+    """
+    if isinstance(result, dict):
+        # Detectar e normalizar diferentes formatos
+        normalized = {
+            'success': result.get('success', True),
+            'capital_start': capital,
+            'capital_end': 0,
+            'profit': 0,
+            'win_rate': 0,
+            'max_dd': 0,
+            'n_trades': 0,
+            'strategy': '',
+            'symbol': '',
+            'timeframe': ''
+        }
+        
+        # Mapeamentos de campos comuns
+        field_mappings = {
+            # Capital
+            'capital_end': ['capital_end', 'capital_final', 'final_equity', 'final_capital', 'equity'],
+            'capital_start': ['capital_start', 'capital_inicial', 'initial_capital', 'capital'],
+            
+            # Profit
+            'profit': ['profit', 'net_profit', 'roi', 'return', 'lucro'],
+            
+            # Win Rate (pode vir como 0.45 ou 45.0)
+            'win_rate': ['win_rate', 'winrate', 'wr', 'taxa_acerto'],
+            
+            # Max Drawdown (pode vir como 0.15 ou 15.0)
+            'max_dd': ['max_dd', 'max_drawdown', 'drawdown', 'dd'],
+            
+            # Trades
+            'n_trades': ['n_trades', 'total_trades', 'num_trades', 'trades_count'],
+        }
+        
+        # Aplicar mapeamentos
+        for target_field, possible_names in field_mappings.items():
+            for name in possible_names:
+                if name in result and result[name] is not None:
+                    value = result[name]
+                    
+                    # Normalizar win_rate (converter de 0-100 para 0-1 se necessário)
+                    if target_field == 'win_rate' and value > 1:
+                        value = value / 100.0
+                    
+                    # Normalizar max_dd (converter de 0-100 para 0-1 se necessário)
+                    if target_field == 'max_dd' and value > 1:
+                        value = value / 100.0
+                    
+                    normalized[target_field] = float(value) if value else 0
+                    break
+        
+        # Calcular capital_end se não existir
+        if normalized['capital_end'] == 0 and normalized['profit'] != 0:
+            # Se profit é percentual
+            if abs(normalized['profit']) < 10:  # Provavelmente já é percentual
+                normalized['capital_end'] = capital * (1 + normalized['profit'] / 100)
+            else:  # Profit absoluto
+                normalized['capital_end'] = capital + normalized['profit']
+        
+        # Garantir que profit está em percentual
+        if normalized['capital_end'] > 0:
+            normalized['profit'] = ((normalized['capital_end'] - capital) / capital) * 100
+        
+        # Copiar outros campos úteis
+        if 'trades' in result:
+            normalized['trades'] = result['trades'][:50]  # Limitar a 50
+        
+        return normalized
+    
+    # Se não é dict, retornar None para processar como DataFrame
+    return None
+
 def calculate_backtest_metrics(df_or_dict, capital):
     """
     Calcula métricas de backtest a partir do DataFrame com sinais OU de um dict já processado.
@@ -18,8 +102,11 @@ def calculate_backtest_metrics(df_or_dict, capital):
     Returns:
         dict com métricas do backtest
     """
-    # Se já é um dict (estratégias antigas), retornar diretamente
+    # Se já é um dict (estratégias antigas), normalizar e retornar
     if isinstance(df_or_dict, dict):
+        normalized = normalize_strategy_result(df_or_dict, capital)
+        if normalized:
+            return normalized
         return df_or_dict
     
     # Se é DataFrame, processar
