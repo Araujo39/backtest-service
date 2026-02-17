@@ -240,6 +240,63 @@ def run_all_backtests():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ==================== POST /run-all-progressive ====================
+@app.post("/run-all-progressive")
+def run_all_progressive():
+    """
+    Inicia execução progressiva de TODAS as estratégias (25+) em background.
+    O frontend consulta /batch-progress para acompanhar em tempo real.
+    """
+    try:
+        import threading
+        
+        def run_in_background():
+            subprocess.run(
+                ["python3", "run_all_progressive.py"],
+                cwd=BASE_DIR,
+                capture_output=True,
+                text=True
+            )
+        
+        # Iniciar em background
+        thread = threading.Thread(target=run_in_background, daemon=True)
+        thread.start()
+        
+        return {
+            "success": True,
+            "message": "Batch backtest started in background",
+            "status": "running",
+            "progress_endpoint": "/batch-progress"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==================== GET /batch-progress ====================
+@app.get("/batch-progress")
+def get_batch_progress():
+    """Retorna o progresso atual da execução em batch"""
+    try:
+        progress_file = REPORTS_DIR / "batch_progress.json"
+        
+        if not progress_file.exists():
+            return {
+                "success": True,
+                "status": "idle",
+                "message": "No batch execution running"
+            }
+        
+        with open(progress_file, 'r') as f:
+            progress = json.load(f)
+        
+        return {
+            "success": True,
+            **progress
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ==================== POST /validate-strategy ====================
 @app.post("/validate-strategy")
 async def validate_strategy(request: Request):
