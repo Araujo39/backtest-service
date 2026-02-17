@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
@@ -999,3 +999,83 @@ def get_data_source():
         "binance_vision_url": "https://data.binance.vision/",
         "recommendation": "Use /binance/download-multiple to get real Binance data"
     }
+
+
+@app.post("/update-data")
+async def update_data(
+    file: UploadFile = File(...),
+    symbol: str = Form(...)
+):
+    """
+    Endpoint para atualizar dados de um símbolo específico
+    Recebe CSV via upload e substitui o arquivo existente
+    """
+    try:
+        # Validar nome do símbolo
+        if not symbol or not symbol.isalnum():
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid symbol name"
+            )
+        
+        # Validar extensão do arquivo
+        if not file.filename.endswith('.csv'):
+            raise HTTPException(
+                status_code=400,
+                detail="Only CSV files are allowed"
+            )
+        
+        # Garantir que DATA_DIR existe
+        DATA_DIR.mkdir(exist_ok=True)
+        
+        # Caminho do arquivo destino
+        target_path = DATA_DIR / f"{symbol}.csv"
+        
+        # Ler e salvar arquivo
+        content = await file.read()
+        
+        # Verificar se conteúdo não está vazio
+        if not content:
+            raise HTTPException(
+                status_code=400,
+                detail="Empty file"
+            )
+        
+        # Salvar arquivo
+        with open(target_path, 'wb') as f:
+            f.write(content)
+        
+        # Contar candles
+        with open(target_path, 'r') as f:
+            lines = f.readlines()
+            candles_count = len(lines) - 1  # -1 para header
+            
+            # Verificar header
+            if candles_count <= 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid CSV: no data rows"
+                )
+            
+            # Pegar primeira e última data
+            first_line = lines[1].split(',')[0] if len(lines) > 1 else None
+            last_line = lines[-1].split(',')[0] if len(lines) > 1 else None
+        
+        return {
+            "success": True,
+            "symbol": symbol,
+            "candles_loaded": candles_count,
+            "file_size": len(content),
+            "first_date": first_line,
+            "last_date": last_line,
+            "path": str(target_path),
+            "message": f"Data for {symbol} updated successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error updating data: {str(e)}"
+        )
