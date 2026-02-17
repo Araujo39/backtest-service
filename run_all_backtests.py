@@ -14,14 +14,36 @@ import numpy as np
 from datetime import datetime
 from pathlib import Path
 
-DATA_DIR = "DATA"
+DATA_DIR = "DATA_spot"
 REPORTS_DIR = "reports"
 CAPITAL = 100.0
 TF = "15m"
+STRATEGIES_DIR = "strategies"  # Diretório de estratégias deployadas
 
 MAX_DD_ACCEPTABLE = 0.15
 MIN_TRADES = 30
-STRATEGIES = ["swing", "fast", "sniper", "spot", "hybrid"]
+
+# Descobrir dinamicamente todas as estratégias deployadas
+def discover_strategies():
+    """Descobre todas as estratégias .py no diretório strategies/"""
+    strategies = []
+    if not os.path.exists(STRATEGIES_DIR):
+        print(f"⚠️  Diretório {STRATEGIES_DIR} não encontrado, usando estratégias padrão")
+        return ["swing", "fast", "sniper", "spot", "hybrid"]
+    
+    for f in os.listdir(STRATEGIES_DIR):
+        if f.endswith('.py') and f != '__init__.py':
+            strategy_name = f.replace('.py', '')
+            strategies.append(strategy_name)
+    
+    if not strategies:
+        print(f"⚠️  Nenhuma estratégia encontrada em {STRATEGIES_DIR}, usando padrão")
+        return ["swing", "fast", "sniper", "spot", "hybrid"]
+    
+    print(f"✅ Encontradas {len(strategies)} estratégias: {', '.join(strategies[:5])}...")
+    return sorted(strategies)
+
+STRATEGIES = discover_strategies()
 
 def discover_assets():
     assets = []
