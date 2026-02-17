@@ -27,6 +27,7 @@ BASE_DIR = Path(__file__).parent
 DATA_DIR = BASE_DIR / "DATA_spot"  # Usar DATA_spot onde estão os dados reais
 REPORTS_DIR = BASE_DIR / "reports"
 STRATEGIES_DIR = BASE_DIR / "strategies"
+BACKTEST_SCRIPT = BASE_DIR / "backtest_lab.py"
 
 # Criar diretórios se não existirem
 REPORTS_DIR.mkdir(exist_ok=True)
