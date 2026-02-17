@@ -1136,3 +1136,316 @@ async def update_data(
             status_code=500,
             detail=f"Error updating data: {str(e)}"
         )
+
+# ==================== GET /ai-suggestions/:strategy ====================
+@app.get("/ai-suggestions/{strategy}")
+async def get_ai_suggestions(strategy: str):
+    """
+    Retorna sugestões de IA para melhorar uma estratégia
+    
+    Returns:
+    {
+        "success": true,
+        "strategy": "sniper",
+        "metrics": { "profit": 64.24, "win_rate": 0.49, "max_dd": 0.12, "n_trades": 51 },
+        "suggestions": [
+            {
+                "issue": "Win rate baixo (49%)",
+                "suggestion": "Adicionar filtros de confirmação (volume, trend) antes de abrir posição",
+                "priority": "high",
+                "action": "optimize_entries"
+            }
+        ],
+        "ai_optimizer_available": true
+    }
+    """
+    try:
+        import os
+        
+        # Verificar se estratégia existe
+        strategy_file = STRATEGIES_DIR / f"{strategy}.py"
+        if not strategy_file.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Strategy '{strategy}' not found"
+            )
+        
+        # Executar um backtest rápido para obter métricas
+        # Escolher um símbolo representativo (ex: BTCUSDT)
+        test_symbol = "BTCUSDT"
+        test_csv = DATA_DIR / f"{test_symbol}.csv"
+        
+        if not test_csv.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"No data available for testing (missing {test_symbol}.csv)"
+            )
+        
+        # Rodar backtest
+        result = subprocess.run(
+            [
+                'python', 
+                str(BACKTEST_SCRIPT),
+                '--data_dir', str(DATA_DIR),
+                '--symbol', test_symbol,
+                '--tf', '15m',
+                '--strategy', strategy,
+                '--capital', '1000',
+                '--out', '/tmp/test_backtest.json'
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode != 0:
+            print(f"[AI] Backtest failed: {result.stderr}")
+            metrics = {
+                "capital_start": 1000,
+                "capital_end": 0,
+                "profit": 0,
+                "win_rate": 0,
+                "max_dd": 0,
+                "n_trades": 0
+            }
+        else:
+            # Carregar resultado
+            with open('/tmp/test_backtest.json', 'r') as f:
+                backtest_data = json.load(f)
+                metrics = {
+                    "capital_start": backtest_data.get('capital_start', 1000),
+                    "capital_end": backtest_data.get('capital_end', 0),
+                    "profit": backtest_data.get('profit', 0),
+                    "win_rate": backtest_data.get('win_rate', 0),
+                    "max_dd": backtest_data.get('max_dd', 0),
+                    "n_trades": backtest_data.get('n_trades', 0)
+                }
+        
+        # Analisar métricas e gerar sugestões
+        suggestions = []
+        
+        # 1. Análise de Win Rate
+        if metrics['win_rate'] < 0.5:
+            suggestions.append({
+                "issue": f"Win rate baixo ({metrics['win_rate'] * 100:.1f}%)",
+                "suggestion": "Adicionar filtros de confirmação (volume, trend) antes de abrir posição",
+                "priority": "high",
+                "action": "optimize_entries"
+            })
+        elif metrics['win_rate'] < 0.6:
+            suggestions.append({
+                "issue": f"Win rate moderado ({metrics['win_rate'] * 100:.1f}%)",
+                "suggestion": "Revisar lógica de entrada - considerar adicionar indicadores de momentum",
+                "priority": "medium",
+                "action": "refine_entries"
+            })
+        
+        # 2. Análise de Max Drawdown
+        if metrics['max_dd'] > 0.15:
+            suggestions.append({
+                "issue": f"Drawdown muito alto ({metrics['max_dd'] * 100:.1f}%)",
+                "suggestion": "Ajustar stop-loss para ATR*1.2 ou reduzir tamanho de posição",
+                "priority": "critical",
+                "action": "reduce_risk"
+            })
+        elif metrics['max_dd'] > 0.10:
+            suggestions.append({
+                "issue": f"Drawdown elevado ({metrics['max_dd'] * 100:.1f}%)",
+                "suggestion": "Considerar trailing stop ou take profit parcial",
+                "priority": "medium",
+                "action": "adjust_exits"
+            })
+        
+        # 3. Análise de Número de Trades
+        if metrics['n_trades'] < 30:
+            suggestions.append({
+                "issue": f"Poucas operações ({metrics['n_trades']} trades)",
+                "suggestion": "Reduzir período de indicadores ou relaxar filtros de entrada",
+                "priority": "low",
+                "action": "increase_frequency"
+            })
+        
+        # 4. Análise de Profit
+        if metrics['profit'] < 0:
+            suggestions.append({
+                "issue": f"Estratégia com prejuízo ({metrics['profit']:.2f}%)",
+                "suggestion": "Revisar lógica de saída e stop-loss - considerar reversão de sinais",
+                "priority": "critical",
+                "action": "fix_exits"
+            })
+        elif metrics['profit'] < 10 and metrics['n_trades'] > 30:
+            suggestions.append({
+                "issue": f"Baixo retorno ({metrics['profit']:.2f}%)",
+                "suggestion": "Otimizar take profit ou ajustar sizing de posição",
+                "priority": "medium",
+                "action": "optimize_exits"
+            })
+        
+        # Verificar se AI Optimizer está disponível
+        ai_optimizer_available = os.getenv('OPENAI_API_KEY') is not None
+        
+        return {
+            "success": True,
+            "strategy": strategy,
+            "metrics": metrics,
+            "suggestions": suggestions,
+            "ai_optimizer_available": ai_optimizer_available
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[AI] Error getting suggestions: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error analyzing strategy: {str(e)}"
+        )
+
+# ==================== POST /ai-optimize ====================
+@app.post("/ai-optimize")
+async def ai_optimize_strategy(request: Request):
+    """
+    Otimiza automaticamente uma estratégia usando IA (GPT-4)
+    
+    Body JSON:
+    {
+        "strategy": "sniper",
+        "code": "def run_strategy(df, capital, **params): ..." (opcional),
+        "metrics": { "profit": 10, "win_rate": 0.45, "max_dd": 0.18 } (opcional)
+    }
+    
+    Returns:
+    {
+        "success": true,
+        "optimized_code": "...",
+        "improvements": ["Adicionou filtro de volume", "Ajustou stop-loss"],
+        "estimated_improvement": "+15% win rate"
+    }
+    """
+    try:
+        import os
+        from ai_optimizer import optimize_strategy
+        
+        # Verificar se OpenAI está configurado
+        if not os.getenv('OPENAI_API_KEY'):
+            raise HTTPException(
+                status_code=503,
+                detail="AI Optimizer not available - OpenAI API key not configured"
+            )
+        
+        data = await request.json()
+        strategy_name = data.get('strategy')
+        
+        if not strategy_name:
+            raise HTTPException(
+                status_code=400,
+                detail="Strategy name is required"
+            )
+        
+        # Obter código da estratégia
+        strategy_file = STRATEGIES_DIR / f"{strategy_name}.py"
+        if not strategy_file.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Strategy '{strategy_name}' not found"
+            )
+        
+        with open(strategy_file, 'r') as f:
+            current_code = f.read()
+        
+        # Obter métricas (ou rodar backtest se não fornecidas)
+        metrics = data.get('metrics')
+        if not metrics:
+            # Rodar backtest rápido
+            test_symbol = "BTCUSDT"
+            result = subprocess.run(
+                [
+                    'python', 
+                    str(BACKTEST_SCRIPT),
+                    '--data_dir', str(DATA_DIR),
+                    '--symbol', test_symbol,
+                    '--tf', '15m',
+                    '--strategy', strategy_name,
+                    '--capital', '1000',
+                    '--out', '/tmp/test_backtest.json'
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0:
+                with open('/tmp/test_backtest.json', 'r') as f:
+                    backtest_data = json.load(f)
+                    metrics = {
+                        "profit": backtest_data.get('profit', 0),
+                        "win_rate": backtest_data.get('win_rate', 0),
+                        "max_dd": backtest_data.get('max_dd', 0),
+                        "n_trades": backtest_data.get('n_trades', 0)
+                    }
+            else:
+                metrics = {"profit": 0, "win_rate": 0, "max_dd": 0, "n_trades": 0}
+        
+        # Identificar problemas
+        problems = []
+        if metrics.get('win_rate', 0) < 0.8:
+            problems.append(f"Win rate baixo ({metrics.get('win_rate', 0) * 100:.1f}%)")
+        if metrics.get('max_dd', 0) > 0.15:
+            problems.append(f"Drawdown alto ({metrics.get('max_dd', 0) * 100:.1f}%)")
+        if metrics.get('n_trades', 0) < 30:
+            problems.append(f"Poucas operações ({metrics.get('n_trades', 0)})")
+        
+        # Chamar AI Optimizer
+        api_key = os.getenv('OPENAI_API_KEY')
+        optimization_result = optimize_strategy(
+            strategy_name=strategy_name,
+            current_code=current_code,
+            metrics=metrics,
+            problems=problems,
+            api_key=api_key
+        )
+        
+        if not optimization_result.get('success'):
+            raise HTTPException(
+                status_code=500,
+                detail=f"Optimization failed: {optimization_result.get('error', 'Unknown error')}"
+            )
+        
+        # Salvar código otimizado
+        optimized_code = optimization_result.get('optimized_code')
+        if optimized_code:
+            # Backup do código original
+            backup_dir = STRATEGIES_DIR / "backups"
+            backup_dir.mkdir(exist_ok=True)
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_file = backup_dir / f"{strategy_name}_backup_{timestamp}.py"
+            
+            with open(backup_file, 'w') as f:
+                f.write(current_code)
+            
+            # Salvar novo código
+            with open(strategy_file, 'w') as f:
+                f.write(optimized_code)
+            
+            print(f"[AI] Strategy '{strategy_name}' optimized successfully")
+            print(f"[AI] Backup saved to: {backup_file}")
+        
+        return {
+            "success": True,
+            "strategy": strategy_name,
+            "optimized": optimized_code is not None,
+            "backup_created": str(backup_file) if optimized_code else None,
+            "improvements": optimization_result.get('improvements', []),
+            "tokens_used": optimization_result.get('tokens_used', 0),
+            "cost_usd": optimization_result.get('cost_usd', 0.0)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[AI] Error optimizing strategy: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error optimizing strategy: {str(e)}"
+        )
