@@ -204,15 +204,15 @@ def run_backtest(request: BacktestRequest):
 
 @app.post("/run-all")
 def run_all_backtests():
-    """Executa todos os backtests (50 combinações)"""
+    """Executa todos os backtests (50 combinações) - versão rápida com estratégias built-in"""
     try:
-        # Executar script orchestrator
+        # Executar script orchestrator RÁPIDO (apenas 5 estratégias built-in)
         result = subprocess.run(
-            ["python3", "run_all_backtests.py"],
+            ["python3", "run_all_backtests_fast.py"],
             cwd=BASE_DIR,
             capture_output=True,
             text=True,
-            timeout=300  # 5 minutos
+            timeout=120  # 2 minutos (50 backtests: 5 estratégias × 10 símbolos)
         )
         
         if result.returncode != 0:
