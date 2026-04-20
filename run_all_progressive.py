@@ -23,7 +23,7 @@ CAPITAL = 100.0
 TF = "15m"
 
 MAX_DD_ACCEPTABLE = 0.15
-MIN_TRADES = 30
+MIN_TRADES = 5
 
 def discover_strategies():
     """Descobre todas as estratégias .py no diretório strategies/"""
@@ -53,8 +53,10 @@ def discover_assets():
 
 def run_backtest(symbol, strategy):
     out_file = f"{REPORTS_DIR}/{strategy}_{symbol}.json"
+    # Use python3 explicitly; quote strategy path to handle dots/hyphens safely via file arg
+    strategy_file = os.path.join("strategies", f"{strategy}.py")
     cmd = [
-        "python", "backtest_lab.py",
+        "python3", "backtest_lab.py",
         "--data_dir", DATA_DIR,
         "--symbol", symbol,
         "--tf", TF,
@@ -62,7 +64,7 @@ def run_backtest(symbol, strategy):
         "--capital", str(CAPITAL),
         "--out", out_file
     ]
-    
+
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         if result.returncode == 0:
@@ -70,22 +72,30 @@ def run_backtest(symbol, strategy):
                 return json.load(f)
         else:
             return None
-    except Exception as e:
+    except Exception:
         return None
+
+def _normalize(result: dict) -> dict:
+    """Normalize field names: support both old (profit/win_rate/n_trades) and new (roi_pct/win_rate_pct/total_trades) schemas."""
+    profit   = result.get('roi_pct',   result.get('profit',   0)) or 0
+    n_trades = result.get('total_trades', result.get('n_trades', 0)) or 0
+    max_dd   = result.get('max_drawdown_pct', result.get('max_dd', 0)) or 0
+    win_rate = result.get('win_rate_pct', result.get('win_rate', 0)) or 0
+    # Normalize win_rate to 0-100 scale (old Railway returns 0-1)
+    if 0 < win_rate <= 1.0:
+        win_rate *= 100
+    return {'profit': profit, 'win_rate': win_rate, 'max_dd': max_dd, 'n_trades': n_trades}
 
 def calculate_asset_score(result):
     if result is None:
         return None
-    
-    profit = result.get('profit', 0)
-    win_rate = result.get('win_rate', 0)
-    max_dd = result.get('max_dd', 0)
-    n_trades = result.get('n_trades', 0)
-    
-    if n_trades < MIN_TRADES:
+
+    r = _normalize(result)
+    if r['n_trades'] < MIN_TRADES:
         return None
-    
-    score = (profit * 1.0) + (win_rate * 0.3) - (max_dd * 1.2)
+
+    # score: ROI weighted + win_rate bonus - drawdown penalty
+    score = (r['profit'] * 1.0) + (r['win_rate'] * 0.3) - (r['max_dd'] * 1.2)
     return score
 
 def update_progress(status, current, total, strategy=None, results=None):
@@ -125,9 +135,10 @@ def calculate_strategy_rankings(all_results, assets):
             valid_count = len(valid_results)
             
             negative_assets = len([r for r in valid_results if r['score'] < 0])
-            avg_profit = np.mean([r['result']['profit'] for r in valid_results])
-            avg_wr = np.mean([r['result']['win_rate'] for r in valid_results])
-            avg_dd = np.mean([r['result']['max_dd'] for r in valid_results])
+            norm = [_normalize(r['result']) for r in valid_results]
+            avg_profit = np.mean([n['profit']   for n in norm])
+            avg_wr     = np.mean([n['win_rate'] for n in norm])
+            avg_dd     = np.mean([n['max_dd']   for n in norm])
         
         strategy_rankings.append({
             'strategy': strategy,

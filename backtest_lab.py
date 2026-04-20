@@ -1,270 +1,343 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+Backtest Engine — Canonical Metrics
+All outputs use fixed scales: win_rate_pct (0-100), roi_pct (0-100),
+max_drawdown_pct (positive %), fees modeled, Sortino/Calmar included.
+"""
 
 import argparse
 import json
+import math
 import pandas as pd
 import numpy as np
 import importlib
+import importlib.util
+from pathlib import Path
+from typing import Union
 
-def normalize_strategy_result(result, capital):
-    """
-    Normaliza o resultado de estratégias customizadas para formato esperado.
-    Compatível com múltiplos formatos de retorno.
-    
-    Args:
-        result: Retorno da estratégia (dict ou DataFrame)
-        capital: Capital inicial
-        
-    Returns:
-        dict normalizado com campos obrigatórios
-    """
-    if isinstance(result, dict):
-        # Detectar e normalizar diferentes formatos
-        normalized = {
-            'success': result.get('success', True),
-            'capital_start': capital,
-            'capital_end': 0,
-            'profit': 0,
-            'win_rate': 0,
-            'max_dd': 0,
-            'n_trades': 0,
-            'strategy': '',
-            'symbol': '',
-            'timeframe': ''
-        }
-        
-        # Mapeamentos de campos comuns
-        field_mappings = {
-            # Capital
-            'capital_end': ['capital_end', 'capital_final', 'final_equity', 'final_capital', 'equity'],
-            'capital_start': ['capital_start', 'capital_inicial', 'initial_capital', 'capital'],
-            
-            # Profit
-            'profit': ['profit', 'net_profit', 'roi', 'return', 'lucro'],
-            
-            # Win Rate (pode vir como 0.45 ou 45.0)
-            'win_rate': ['win_rate', 'winrate', 'wr', 'taxa_acerto'],
-            
-            # Max Drawdown (pode vir como 0.15 ou 15.0)
-            'max_dd': ['max_dd', 'max_drawdown', 'drawdown', 'dd'],
-            
-            # Trades
-            'n_trades': ['n_trades', 'total_trades', 'num_trades', 'trades_count'],
-        }
-        
-        # Aplicar mapeamentos
-        for target_field, possible_names in field_mappings.items():
-            for name in possible_names:
-                if name in result and result[name] is not None:
-                    value = result[name]
-                    
-                    # Normalizar win_rate (converter de 0-100 para 0-1 se necessário)
-                    if target_field == 'win_rate' and value > 1:
-                        value = value / 100.0
-                    
-                    # Normalizar max_dd (converter de 0-100 para 0-1 se necessário)
-                    if target_field == 'max_dd' and value > 1:
-                        value = value / 100.0
-                    
-                    normalized[target_field] = float(value) if value else 0
-                    break
-        
-        # Calcular capital_end se não existir
-        if normalized['capital_end'] == 0 and normalized['profit'] != 0:
-            # Se profit é percentual
-            if abs(normalized['profit']) < 10:  # Provavelmente já é percentual
-                normalized['capital_end'] = capital * (1 + normalized['profit'] / 100)
-            else:  # Profit absoluto
-                normalized['capital_end'] = capital + normalized['profit']
-        
-        # Garantir que profit está em percentual
-        if normalized['capital_end'] > 0:
-            normalized['profit'] = ((normalized['capital_end'] - capital) / capital) * 100
-        
-        # Copiar outros campos úteis
-        if 'trades' in result:
-            normalized['trades'] = result['trades'][:50]  # Limitar a 50
-        
-        return normalized
-    
-    # Se não é dict, retornar None para processar como DataFrame
-    return None
+# ─── Config defaults ──────────────────────────────────────────────────────────
+DEFAULT_COMMISSION_PCT = 0.1   # 0.1% per side (Binance taker)
+DEFAULT_SLIPPAGE_PCT   = 0.05  # 0.05% slippage estimate
+RISK_FREE_RATE_ANNUAL  = 0.05  # 5% annual (for Sharpe/Sortino)
 
-def calculate_backtest_metrics(df_or_dict, capital):
+CANDLES_PER_YEAR = {
+    '1m':  525600, '3m': 175200, '5m': 105120, '15m': 35040,
+    '30m': 17520,  '1h': 8760,   '2h': 4380,   '4h': 2190,
+    '6h':  1460,   '8h': 1095,   '12h': 730,   '1d': 365,
+}
+
+
+def _load_strategy_by_path(name: str):
+    """Load a strategy module from strategies/{name}.py using file path (supports dots/hyphens in name)."""
+    strategy_path = Path('strategies') / f'{name}.py'
+    if not strategy_path.exists():
+        raise FileNotFoundError(f'Strategy not found: {name}')
+    spec = importlib.util.spec_from_file_location(f'strategy_{id(name)}', strategy_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def load_dataframe_from_candles(ohlcv: list) -> pd.DataFrame:
+    """Convert [{t,o,h,l,c,v}, ...] inline payload to DataFrame."""
+    df = pd.DataFrame(ohlcv, columns=['t', 'o', 'h', 'l', 'c', 'v'])
+    df = df.rename(columns={'t': 'timestamp', 'o': 'open', 'h': 'high',
+                             'l': 'low', 'c': 'close', 'v': 'volume'})
+    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+    for col in ('open', 'high', 'low', 'close', 'volume'):
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+    return df.dropna(subset=['close']).reset_index(drop=True)
+
+
+def load_dataframe_from_csv(data_dir: str, symbol: str) -> pd.DataFrame:
+    df = pd.read_csv(f"{data_dir}/{symbol}.csv")
+    # Normalise column names
+    df.columns = [c.lower().strip() for c in df.columns]
+    rename = {'time': 'timestamp', 'date': 'timestamp',
+              'open_price': 'open', 'close_price': 'close'}
+    df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
+    if 'timestamp' in df.columns:
+        try:
+            ts = pd.to_numeric(df['timestamp'], errors='coerce')
+            if ts.notna().all():
+                df['timestamp'] = pd.to_datetime(ts, unit='ms')
+            else:
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+        except Exception:
+            df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+    for col in ('open', 'high', 'low', 'close', 'volume'):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    return df.dropna(subset=['close']).reset_index(drop=True)
+
+
+def calculate_sortino(returns: pd.Series, rf_per_period: float) -> float:
+    excess = returns - rf_per_period
+    downside = excess[excess < 0]
+    downside_std = math.sqrt((downside ** 2).mean()) if len(downside) > 0 else 0
+    return float(excess.mean() / downside_std) if downside_std > 0 else 0.0
+
+
+def calculate_calmar(roi_pct: float, max_dd_pct: float, periods: int, tf: str) -> float:
+    if max_dd_pct <= 0 or periods <= 0:
+        return 0.0
+    cpy = CANDLES_PER_YEAR.get(tf, 35040)
+    years = periods / cpy
+    annual_roi = roi_pct / max(years, 0.01)
+    return round(annual_roi / max_dd_pct, 3)
+
+
+def simulate_trades(df: pd.DataFrame, capital: float, commission_pct: float, slippage_pct: float):
     """
-    Calcula métricas de backtest a partir do DataFrame com sinais OU de um dict já processado.
-    
-    Args:
-        df_or_dict: DataFrame com coluna 'signal' OU dict com métricas já calculadas
-        capital: Capital inicial
-    
-    Returns:
-        dict com métricas do backtest
+    Walk through signals: 1=buy, -1=sell, 0=hold.
+    Models commission + slippage on both entry and exit.
+    Returns (trades, equity_curve, final_equity).
     """
-    # Se já é um dict (estratégias antigas), normalizar e retornar
-    if isinstance(df_or_dict, dict):
-        normalized = normalize_strategy_result(df_or_dict, capital)
-        if normalized:
-            return normalized
-        return df_or_dict
-    
-    # Se é DataFrame, processar
-    df = df_or_dict
-    
-    if 'signal' not in df.columns:
-        return {
-            "error": "DataFrame não contém coluna 'signal'",
-            "success": False
-        }
-    
-    # Calcular retornos
-    df = df.copy()
-    df['returns'] = df['close'].pct_change()
-    
-    # Criar posição: 1 quando compramos, 0 quando não temos posição
-    df['position'] = 0
-    position = 0
-    entry_price = 0
-    
+    cost_per_side = (commission_pct + slippage_pct) / 100.0
+
     trades = []
     equity = capital
-    equity_curve = [capital]
-    
+    equity_curve = []
+    position_qty = 0.0
+    entry_price = 0.0
+    entry_time = None
+
+    signals = df['signal'].values
+    closes = df['close'].values
+    timestamps = df['timestamp'].values if 'timestamp' in df.columns else np.arange(len(df))
+
     for i in range(len(df)):
-        signal = df.iloc[i]['signal']
-        current_price = df.iloc[i]['close']
-        
-        # Compra
-        if signal == 1 and position == 0:
-            position = equity / current_price  # Quantidade de moedas
-            entry_price = current_price
-            df.loc[df.index[i], 'position'] = 1
-            
-        # Venda
-        elif signal == -1 and position > 0:
-            exit_price = current_price
-            pnl = (exit_price - entry_price) * position
+        sig = signals[i]
+        price = float(closes[i])
+        ts = str(timestamps[i])
+
+        if sig == 1 and position_qty == 0:
+            # Entry: pay slippage + commission on the way in
+            effective_entry = price * (1 + cost_per_side)
+            position_qty = equity / effective_entry
+            entry_price = effective_entry
+            entry_time = ts
+
+        elif sig == -1 and position_qty > 0:
+            # Exit: pay slippage + commission on the way out
+            effective_exit = price * (1 - cost_per_side)
+            pnl = (effective_exit - entry_price) * position_qty
             equity += pnl
-            
+            gross_pnl = (price - entry_price / (1 + cost_per_side)) * position_qty
+            fee_paid = abs(gross_pnl - pnl)
+
             trades.append({
-                'entry_price': float(entry_price),
-                'exit_price': float(exit_price),
-                'pnl': float(pnl),
-                'return': float((exit_price - entry_price) / entry_price * 100)
+                'entry_time':  entry_time,
+                'exit_time':   ts,
+                'entry_price': round(entry_price / (1 + cost_per_side), 6),
+                'exit_price':  round(price, 6),
+                'direction':   'LONG',
+                'pnl_usd':     round(pnl, 4),
+                'pnl_pct':     round((effective_exit - entry_price) / entry_price * 100, 4),
+                'fee_paid':    round(fee_paid, 4),
             })
-            
-            position = 0
-            entry_price = 0
-            df.loc[df.index[i], 'position'] = 0
-        
-        # Manter posição
-        elif position > 0:
-            df.loc[df.index[i], 'position'] = 1
-            # Atualizar equity com preço atual
-            equity_curve.append(capital + (current_price - entry_price) * position)
+            position_qty = 0.0
+            entry_price = 0.0
+
+        # Mark-to-market equity for curve
+        if position_qty > 0:
+            mtm = equity + (price * (1 - cost_per_side) - entry_price) * position_qty
+            equity_curve.append({'timestamp': ts, 'equity': round(mtm, 4)})
         else:
-            equity_curve.append(equity)
-    
-    # Fechar posição aberta no final
-    if position > 0:
-        exit_price = df.iloc[-1]['close']
-        pnl = (exit_price - entry_price) * position
+            equity_curve.append({'timestamp': ts, 'equity': round(equity, 4)})
+
+    # Force-close open position at last price
+    if position_qty > 0:
+        price = float(closes[-1])
+        effective_exit = price * (1 - cost_per_side)
+        pnl = (effective_exit - entry_price) * position_qty
         equity += pnl
+        gross_pnl = (price - entry_price / (1 + cost_per_side)) * position_qty
+        fee_paid = abs(gross_pnl - pnl)
         trades.append({
-            'entry_price': float(entry_price),
-            'exit_price': float(exit_price),
-            'pnl': float(pnl),
-            'return': float((exit_price - entry_price) / entry_price * 100)
+            'entry_time':  entry_time,
+            'exit_time':   str(timestamps[-1]),
+            'entry_price': round(entry_price / (1 + cost_per_side), 6),
+            'exit_price':  round(price, 6),
+            'direction':   'LONG',
+            'pnl_usd':     round(pnl, 4),
+            'pnl_pct':     round((effective_exit - entry_price) / entry_price * 100, 4),
+            'fee_paid':    round(fee_paid, 4),
         })
-    
-    # Calcular métricas
-    if len(trades) == 0:
+        equity_curve[-1]['equity'] = round(equity, 4)
+
+    return trades, equity_curve, equity
+
+
+def calculate_backtest_metrics(
+    df_result: Union[pd.DataFrame, dict],
+    capital: float,
+    symbol: str = '',
+    strategy: str = '',
+    timeframe: str = '15m',
+    config: dict = None,
+) -> dict:
+    """
+    Canonical output — always consistent scales:
+      win_rate_pct  in [0, 100]
+      roi_pct       can be negative
+      max_drawdown_pct positive %
+    """
+    cfg = config or {}
+    commission_pct = float(cfg.get('commission_pct', DEFAULT_COMMISSION_PCT))
+    slippage_pct   = float(cfg.get('slippage_pct',   DEFAULT_SLIPPAGE_PCT))
+
+    # ── Handle legacy dict return from old strategies ──────────────────────
+    if isinstance(df_result, dict):
+        raw = df_result
+        win_rate_raw = float(raw.get('win_rate', 0))
+        win_rate_pct = win_rate_raw if win_rate_raw > 1 else win_rate_raw * 100
+        max_dd_raw = float(raw.get('max_dd', raw.get('max_drawdown', 0)))
+        max_dd_pct = max_dd_raw if max_dd_raw > 1 else max_dd_raw * 100
+        roi_raw = float(raw.get('roi', raw.get('return', 0)))
+        roi_pct = roi_raw if abs(roi_raw) > 1 else roi_raw * 100
         return {
-            "success": True,
-            "total_trades": 0,
-            "profitable_trades": 0,
-            "losing_trades": 0,
-            "win_rate": 0.0,
-            "total_profit": 0.0,
-            "total_loss": 0.0,
-            "net_profit": 0.0,
-            "profit_factor": 0.0,
-            "max_drawdown": 0.0,
-            "sharpe_ratio": 0.0,
-            "final_equity": float(capital),
-            "roi": 0.0,
-            "trades": []
+            'success': True, 'symbol': symbol, 'strategy': strategy, 'timeframe': timeframe,
+            'capital_start': capital, 'capital_end': round(float(raw.get('final_equity', capital)), 2),
+            'roi_pct': round(roi_pct, 2), 'win_rate_pct': round(win_rate_pct, 2),
+            'max_drawdown_pct': round(abs(max_dd_pct), 2),
+            'total_trades': int(raw.get('n_trades', raw.get('total_trades', 0))),
+            'winning_trades': int(raw.get('profitable_trades', 0)),
+            'losing_trades': int(raw.get('losing_trades', 0)),
+            'profit_factor': round(float(raw.get('profit_factor', 0)), 3),
+            'sharpe_ratio': round(float(raw.get('sharpe_ratio', 0)), 3),
+            'sortino_ratio': 0.0, 'calmar_ratio': 0.0,
+            'total_fees_paid': 0.0,
+            'equity_curve': [], 'trades': raw.get('trades', []),
         }
-    
-    profitable_trades = [t for t in trades if t['pnl'] > 0]
-    losing_trades = [t for t in trades if t['pnl'] < 0]
-    
-    total_profit = sum(t['pnl'] for t in profitable_trades) if profitable_trades else 0
-    total_loss = abs(sum(t['pnl'] for t in losing_trades)) if losing_trades else 0
-    net_profit = equity - capital
-    
-    # Calcular drawdown
-    equity_series = pd.Series(equity_curve)
-    running_max = equity_series.expanding().max()
-    drawdown = (equity_series - running_max) / running_max
-    max_drawdown = abs(drawdown.min()) * 100
-    
-    # Sharpe Ratio (simplificado)
-    returns = pd.Series([t['return'] for t in trades])
-    sharpe_ratio = returns.mean() / returns.std() if len(returns) > 1 and returns.std() != 0 else 0
-    
+
+    # ── DataFrame path ─────────────────────────────────────────────────────
+    df = df_result
+    if 'signal' not in df.columns:
+        return {'success': False, 'error': "DataFrame missing 'signal' column"}
+
+    trades, equity_curve, final_equity = simulate_trades(df, capital, commission_pct, slippage_pct)
+
+    if not trades:
+        return {
+            'success': True, 'symbol': symbol, 'strategy': strategy, 'timeframe': timeframe,
+            'capital_start': capital, 'capital_end': round(capital, 2),
+            'roi_pct': 0.0, 'win_rate_pct': 0.0, 'max_drawdown_pct': 0.0,
+            'total_trades': 0, 'winning_trades': 0, 'losing_trades': 0,
+            'profit_factor': 0.0, 'sharpe_ratio': 0.0, 'sortino_ratio': 0.0, 'calmar_ratio': 0.0,
+            'avg_trade_pct': 0.0, 'avg_win_pct': 0.0, 'avg_loss_pct': 0.0,
+            'best_trade_pct': 0.0, 'worst_trade_pct': 0.0,
+            'total_fees_paid': 0.0, 'equity_curve': equity_curve, 'trades': [],
+        }
+
+    winning = [t for t in trades if t['pnl_usd'] > 0]
+    losing  = [t for t in trades if t['pnl_usd'] <= 0]
+
+    gross_profit = sum(t['pnl_usd'] for t in winning)
+    gross_loss   = abs(sum(t['pnl_usd'] for t in losing))
+    total_fees   = sum(t['fee_paid'] for t in trades)
+    roi_pct      = (final_equity - capital) / capital * 100
+
+    # Drawdown from equity curve
+    eq_series = pd.Series([e['equity'] for e in equity_curve])
+    running_max = eq_series.expanding().max()
+    dd_series = (eq_series - running_max) / running_max * 100
+    max_dd_pct = abs(float(dd_series.min()))
+
+    # Per-trade returns for Sharpe / Sortino
+    trade_returns = pd.Series([t['pnl_pct'] for t in trades])
+    cpy = CANDLES_PER_YEAR.get(timeframe, 35040)
+    rf_per_trade = (RISK_FREE_RATE_ANNUAL / (cpy / max(len(df), 1))) / 100
+
+    std = trade_returns.std()
+    sharpe  = float(trade_returns.mean() / std) if std > 0 else 0.0
+    sortino = calculate_sortino(trade_returns, rf_per_trade)
+    calmar  = calculate_calmar(roi_pct, max_dd_pct, len(df), timeframe)
+
+    pnl_pcts = [t['pnl_pct'] for t in trades]
+    win_pcts  = [t['pnl_pct'] for t in winning]
+    loss_pcts = [t['pnl_pct'] for t in losing]
+
     return {
-        "success": True,
-        "total_trades": len(trades),
-        "profitable_trades": len(profitable_trades),
-        "losing_trades": len(losing_trades),
-        "win_rate": float(len(profitable_trades) / len(trades) * 100) if trades else 0,
-        "total_profit": float(total_profit),
-        "total_loss": float(total_loss),
-        "net_profit": float(net_profit),
-        "profit_factor": float(total_profit / total_loss) if total_loss > 0 else float('inf'),
-        "max_drawdown": float(max_drawdown),
-        "sharpe_ratio": float(sharpe_ratio),
-        "final_equity": float(equity),
-        "initial_capital": float(capital),
-        "roi": float((equity - capital) / capital * 100),
-        "trades": trades[:50]  # Limitar a 50 trades para não sobrecarregar JSON
+        'success': True,
+        'symbol': symbol, 'strategy': strategy, 'timeframe': timeframe,
+        # Capital
+        'capital_start':    round(capital, 2),
+        'capital_end':      round(final_equity, 2),
+        'net_profit':       round(final_equity - capital, 2),
+        'roi_pct':          round(roi_pct, 2),
+        # Trades
+        'total_trades':     len(trades),
+        'winning_trades':   len(winning),
+        'losing_trades':    len(losing),
+        'win_rate_pct':     round(len(winning) / len(trades) * 100, 2),
+        # P&L breakdown
+        'gross_profit':     round(gross_profit, 2),
+        'gross_loss':       round(gross_loss, 2),
+        'profit_factor':    round(gross_profit / gross_loss, 3) if gross_loss > 0 else 999.0,
+        # Averages
+        'avg_trade_pct':    round(float(np.mean(pnl_pcts)), 3),
+        'avg_win_pct':      round(float(np.mean(win_pcts)), 3) if win_pcts else 0.0,
+        'avg_loss_pct':     round(float(np.mean(loss_pcts)), 3) if loss_pcts else 0.0,
+        'best_trade_pct':   round(float(max(pnl_pcts)), 3),
+        'worst_trade_pct':  round(float(min(pnl_pcts)), 3),
+        # Risk metrics
+        'max_drawdown_pct': round(max_dd_pct, 2),
+        'sharpe_ratio':     round(sharpe, 3),
+        'sortino_ratio':    round(sortino, 3),
+        'calmar_ratio':     round(calmar, 3),
+        # Costs
+        'total_fees_paid':  round(total_fees, 4),
+        'commission_pct':   commission_pct,
+        'slippage_pct':     slippage_pct,
+        # Series (trimmed to 200 points for JSON size)
+        'equity_curve': equity_curve[::max(1, len(equity_curve)//200)],
+        'trades': trades[:100],
     }
 
+
+def run_backtest_from_df(
+    df: pd.DataFrame,
+    strategy_module,
+    capital: float,
+    symbol: str,
+    strategy: str,
+    timeframe: str,
+    config: dict,
+) -> dict:
+    """High-level: run_strategy → calculate_metrics."""
+    result_df = strategy_module.run_strategy(df, capital=capital)
+    return calculate_backtest_metrics(result_df, capital, symbol, strategy, timeframe, config)
+
+
+# ─── CLI entrypoint ────────────────────────────────────────────────────────────
 def main():
-    p = argparse.ArgumentParser(description="Backtest Lab - Multi Strategy")
+    p = argparse.ArgumentParser(description='Backtest Lab — Canonical Metrics')
     p.add_argument('--data_dir', required=True)
-    p.add_argument('--symbol', required=True)
-    p.add_argument('--tf', default='15m')
+    p.add_argument('--symbol',   required=True)
+    p.add_argument('--tf',       default='15m')
     p.add_argument('--strategy', required=True)
-    p.add_argument('--capital', type=float, default=100.0)
-    p.add_argument('--out', default='reports/report.json')
+    p.add_argument('--capital',  type=float, default=1000.0)
+    p.add_argument('--commission', type=float, default=DEFAULT_COMMISSION_PCT)
+    p.add_argument('--slippage',   type=float, default=DEFAULT_SLIPPAGE_PCT)
+    p.add_argument('--out',      default='reports/report.json')
     args = p.parse_args()
 
-    # Carregar dados
-    df = pd.read_csv(f"{args.data_dir}/{args.symbol}.csv")
-    
-    # Importar e executar estratégia
-    mod = importlib.import_module(f"strategies.{args.strategy}")
-    run_strategy = getattr(mod, "run_strategy")
-    
-    # Executar estratégia (retorna DataFrame com coluna 'signal')
-    result_df = run_strategy(df, capital=args.capital)
-    
-    # Calcular métricas do backtest
-    metrics = calculate_backtest_metrics(result_df, args.capital)
-    
-    # Adicionar informações extras
-    metrics['symbol'] = args.symbol
-    metrics['strategy'] = args.strategy
-    metrics['timeframe'] = args.tf
-    
-    # Salvar resultado
+    df = load_dataframe_from_csv(args.data_dir, args.symbol)
+    mod = _load_strategy_by_path(args.strategy)
+    config = {'commission_pct': args.commission, 'slippage_pct': args.slippage}
+
+    metrics = run_backtest_from_df(df, mod, args.capital, args.symbol, args.strategy, args.tf, config)
+
     with open(args.out, 'w', encoding='utf-8') as f:
         json.dump(metrics, f, indent=2)
+    print(f'OK — {args.symbol}/{args.strategy} → {metrics["total_trades"]} trades, ROI {metrics["roi_pct"]}%')
 
-    print("OK. Relatório salvo em:", args.out)
 
-if __name__ == "__main__":
+def run_strategy(df, capital=1000, **params):
+    raise NotImplementedError('backtest_lab.py is not a strategy module')
+
+
+if __name__ == '__main__':
     main()
